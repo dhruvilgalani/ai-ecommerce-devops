@@ -1,0 +1,11 @@
+.env
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+*.pem
+*.key
+backups/
+node_modules/
+__pycache__/
+EOF

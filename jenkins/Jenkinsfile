@@ -1,0 +1,78 @@
+pipeline {
+  agent any
+  environment {
+    IMAGE_NAME = 'nexvion'
+    TAG = "${env.BUILD_NUMBER}"
+  }
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+    stage('Lint') {
+      steps {
+        sh 'htmlhint "application/*.html" || true'
+        sh 'node --check application/script.js'
+        sh 'node --check application/payment.js'
+      }
+    }
+    stage('Secret Scan') {
+      steps {
+        sh 'gitleaks detect --source . --no-git --exit-code 0 --report-path gitleaks-report.json'
+      }
+    }
+    stage('Docker Build') {
+      steps {
+        sh 'docker build -t ${IMAGE_NAME}:${TAG} -f docker/Dockerfile .'
+      }
+    }
+    stage('Image Scan') {
+      steps {
+        sh 'trivy image --severity HIGH,CRITICAL --exit-code 0 ${IMAGE_NAME}:${TAG}'
+      }
+    }
+    stage('Smoke Test') {
+      steps {
+        sh '''
+          docker rm -f nexvion-test || true
+          docker run -d --name nexvion-test -p 8082:8080 ${IMAGE_NAME}:${TAG}
+          sleep 5
+          ./scripts/health-check.sh http://host.docker.internal:8082
+        '''
+      }
+    }
+    stage('Push Image') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+          sh '''
+            echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin
+            docker tag ${IMAGE_NAME}:${TAG} $DH_USER/${IMAGE_NAME}:${TAG}
+            docker tag ${IMAGE_NAME}:${TAG} $DH_USER/${IMAGE_NAME}:latest
+            docker push $DH_USER/${IMAGE_NAME}:${TAG}
+            docker push $DH_USER/${IMAGE_NAME}:latest
+          '''
+        }
+      }
+    }
+    stage('Deploy') {
+      steps {
+        sh '''
+          docker rm -f nexvion-web || true
+          docker run -d --name nexvion-web -p 8080:8080 ${IMAGE_NAME}:${TAG}
+        '''
+      }
+    }
+    stage('Health Check') {
+      steps {
+        sh '''
+          sleep 3
+          ./scripts/health-check.sh http://host.docker.internal:8080
+        '''
+      }
+    }
+  }
+  post {
+    always  { sh 'docker rm -f nexvion-test || true' }
+    success { echo 'Deployment successful' }
+    failure { echo 'Pipeline failed - check the stage logs' }
+  }
+}

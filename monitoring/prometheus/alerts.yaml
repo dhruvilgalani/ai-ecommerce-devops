@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nexvion-alerts
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: nexvion
+      rules:
+        - alert: NexvionNoPodsAvailable
+          expr: kube_deployment_status_replicas_available{namespace="ecommerce",deployment="nexvion"} < 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Nexvion has no available pods"

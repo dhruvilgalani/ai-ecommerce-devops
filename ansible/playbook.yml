@@ -1,0 +1,54 @@
+---
+- name: Configure Nexvion web server
+  hosts: web
+  become: true
+  vars:
+    dockerhub_user: changeme
+  tasks:
+    - name: Install Docker and the Python Docker library
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - python3-docker
+        state: present
+        update_cache: true
+
+    - name: Start and enable Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add ubuntu user to the docker group
+      ansible.builtin.user:
+        name: ubuntu
+        groups: docker
+        append: true
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: /opt/nexvion
+        state: directory
+        mode: "0755"
+
+    - name: Disable root SSH login (basic hardening)
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: Restart SSH
+
+    - name: Run the Nexvion container
+      community.docker.docker_container:
+        name: nexvion
+        image: "{{ dockerhub_user }}/nexvion:latest"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "80:8080"
+
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

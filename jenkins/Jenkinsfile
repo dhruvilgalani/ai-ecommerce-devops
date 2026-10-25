@@ -10,9 +10,8 @@ pipeline {
     }
     stage('Lint') {
       steps {
-        sh 'htmlhint "application/*.html" || true'
-        sh 'node --check application/script.js'
-        sh 'node --check application/payment.js'
+        sh 'htmlhint "application/**/*.html" || true'
+        sh 'find application -name "*.js" -print -exec node --check {} \\;'
       }
     }
     stage('Secret Scan') {
@@ -34,9 +33,11 @@ pipeline {
       steps {
         sh '''
           docker rm -f nexvion-test || true
-          docker run -d --name nexvion-test -p 8082:8080 ${IMAGE_NAME}:${TAG}
+          docker run -d --name nexvion-test ${IMAGE_NAME}:${TAG}
           sleep 5
-          ./scripts/health-check.sh http://host.docker.internal:8082
+          IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nexvion-test)
+          echo "Testing container at $IP"
+          ./scripts/health-check.sh http://$IP:8080
         '''
       }
     }
@@ -65,7 +66,9 @@ pipeline {
       steps {
         sh '''
           sleep 3
-          ./scripts/health-check.sh http://host.docker.internal:8080
+          IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nexvion-web)
+          echo "Checking website at $IP"
+          ./scripts/health-check.sh http://$IP:8080
         '''
       }
     }
